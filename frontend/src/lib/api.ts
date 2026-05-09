@@ -1,6 +1,6 @@
 import type { ApiTravelPlan, Itinerary } from "../types/itinerary";
 
-const API_URL = "http://localhost:8000/api/travel-plans";
+const API_URL = "/api/generate-trip";
 
 export async function createTravelPlan(query: string): Promise<Itinerary> {
   const response = await fetch(API_URL, {
@@ -8,7 +8,7 @@ export async function createTravelPlan(query: string): Promise<Itinerary> {
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ prompt: query }),
   });
 
   if (!response.ok) {
