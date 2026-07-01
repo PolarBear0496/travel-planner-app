@@ -9,6 +9,9 @@ export type Spot = {
   lat?: number;
   lng?: number;
   dayId?: string;
+  order?: number;
+  stayMinutes?: number;
+  transportMode?: "walk" | "train" | "bus" | "car" | "other";
 };
 
 export type ItineraryDay = {

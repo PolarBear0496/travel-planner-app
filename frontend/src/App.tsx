@@ -6,6 +6,8 @@ import { ItineraryPanel } from "./components/ItineraryPanel";
 import { SearchBar } from "./components/SearchBar";
 import type { Itinerary } from "./types/itinerary";
 
+const EDITED_ITINERARY_STORAGE_KEY = "tripnote-edited-itinerary";
+
 const MapView = lazy(() =>
   import("./components/MapView").then((module) => ({ default: module.MapView })),
 );
@@ -23,18 +25,126 @@ function getRoutePlanId() {
   return match?.[1] ? decodeURIComponent(match[1]) : null;
 }
 
+function getInitialItinerary() {
+  if (typeof window === "undefined") {
+    return sampleItinerary;
+  }
+
+  const savedItinerary = window.localStorage.getItem(EDITED_ITINERARY_STORAGE_KEY);
+
+  if (!savedItinerary) {
+    return sampleItinerary;
+  }
+
+  try {
+    return JSON.parse(savedItinerary) as Itinerary;
+  } catch {
+    window.localStorage.removeItem(EDITED_ITINERARY_STORAGE_KEY);
+    return sampleItinerary;
+  }
+}
+
+function reindexItinerary(itinerary: Itinerary): Itinerary {
+  return {
+    ...itinerary,
+    days: itinerary.days.map((day) => ({
+      ...day,
+      spots: day.spots.map((spot, index) => ({ ...spot, order: index + 1 })),
+    })),
+  };
+}
+
+function hasSpot(itinerary: Itinerary, spotId: string | null) {
+  return Boolean(spotId && itinerary.days.some((day) => day.spots.some((spot) => spot.id === spotId)));
+}
+
 function App() {
   const initialPrompt = useMemo(() => getInitialPrompt(), []);
-  const [itinerary, setItinerary] = useState<Itinerary>(sampleItinerary);
+  const initialItinerary = useMemo(() => getInitialItinerary(), []);
+  const [itinerary, setItinerary] = useState<Itinerary>(initialItinerary);
   const [selectedSpotId, setSelectedSpotId] = useState<string | null>(
-    getFirstSpotId(sampleItinerary),
+    getFirstSpotId(initialItinerary),
   );
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasGeneratedPlan, setHasGeneratedPlan] = useState(false);
   const [showRouteMap, setShowRouteMap] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saved">(
+    initialItinerary === sampleItinerary ? "idle" : "saved",
+  );
   const { usageStatus, recordGeneration } = useUsageStatus();
+
+  function applyItineraryChange(nextItinerary: Itinerary, nextSelectedSpotId = selectedSpotId) {
+    const orderedItinerary = reindexItinerary(nextItinerary);
+    setItinerary(orderedItinerary);
+    setSelectedSpotId(
+      hasSpot(orderedItinerary, nextSelectedSpotId)
+        ? nextSelectedSpotId
+        : getFirstSpotId(orderedItinerary),
+    );
+    setSaveStatus("dirty");
+  }
+
+  function handleMoveSpot(dayId: string, spotId: string, direction: "up" | "down") {
+    const nextItinerary = {
+      ...itinerary,
+      days: itinerary.days.map((day) => {
+        if (day.id !== dayId) {
+          return day;
+        }
+
+        const currentIndex = day.spots.findIndex((spot) => spot.id === spotId);
+        const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+        if (currentIndex < 0 || targetIndex < 0 || targetIndex >= day.spots.length) {
+          return day;
+        }
+
+        const nextSpots = [...day.spots];
+        [nextSpots[currentIndex], nextSpots[targetIndex]] = [
+          nextSpots[targetIndex],
+          nextSpots[currentIndex],
+        ];
+
+        return { ...day, spots: nextSpots };
+      }),
+    };
+
+    applyItineraryChange(nextItinerary, spotId);
+  }
+
+  function handleDeleteSpot(dayId: string, spotId: string) {
+    const nextItinerary = {
+      ...itinerary,
+      days: itinerary.days.map((day) =>
+        day.id === dayId ? { ...day, spots: day.spots.filter((spot) => spot.id !== spotId) } : day,
+      ),
+    };
+
+    applyItineraryChange(nextItinerary, spotId);
+  }
+
+  function handleUpdateSpotMemo(dayId: string, spotId: string, memo: string) {
+    const nextItinerary = {
+      ...itinerary,
+      days: itinerary.days.map((day) =>
+        day.id === dayId
+          ? {
+              ...day,
+              spots: day.spots.map((spot) => (spot.id === spotId ? { ...spot, memo } : spot)),
+            }
+          : day,
+      ),
+    };
+
+    applyItineraryChange(nextItinerary, spotId);
+  }
+
+  function handleSaveItinerary() {
+    window.localStorage.setItem(EDITED_ITINERARY_STORAGE_KEY, JSON.stringify(reindexItinerary(itinerary)));
+    setSaveStatus("saved");
+  }
 
   useEffect(() => {
     const planId = getRoutePlanId();
@@ -43,6 +153,7 @@ function App() {
       return;
     }
 
+    const sharedPlanId = planId;
     let isMounted = true;
 
     async function loadSharedPlan() {
@@ -50,7 +161,7 @@ function App() {
       setErrorMessage(null);
 
       try {
-        const result = await getTravelPlan(planId);
+        const result = await getTravelPlan(sharedPlanId);
 
         if (!isMounted) {
           return;
@@ -61,6 +172,7 @@ function App() {
         setShareUrl(`${window.location.origin}/plan/${result.planId ?? planId}`);
         setHasGeneratedPlan(true);
         setShowRouteMap(true);
+        setSaveStatus("idle");
       } catch (error) {
         if (!isMounted) {
           return;
@@ -106,6 +218,7 @@ function App() {
       );
       setHasGeneratedPlan(true);
       setShowRouteMap(true);
+      setSaveStatus("dirty");
       recordGeneration();
     } catch (error) {
       setErrorMessage(
@@ -118,6 +231,7 @@ function App() {
       setShareUrl(null);
       setHasGeneratedPlan(false);
       setShowRouteMap(false);
+      setSaveStatus("idle");
     } finally {
       setIsLoading(false);
     }
@@ -210,6 +324,11 @@ function App() {
             itinerary={itinerary}
             selectedSpotId={selectedSpotId}
             onSelectSpot={setSelectedSpotId}
+            onMoveSpot={handleMoveSpot}
+            onDeleteSpot={handleDeleteSpot}
+            onUpdateSpotMemo={handleUpdateSpotMemo}
+            onSave={handleSaveItinerary}
+            saveStatus={saveStatus}
             shareUrl={shareUrl}
           />
 

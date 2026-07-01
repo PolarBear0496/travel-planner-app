@@ -43,7 +43,20 @@ export async function getTravelPlan(planId: string): Promise<TravelPlanResult> {
 
 export function normalizeTravelPlan(travelPlan: ApiTravelPlan | Itinerary): Itinerary {
   if ("days" in travelPlan) {
-    return travelPlan;
+    return {
+      ...travelPlan,
+      days: travelPlan.days.map((day) => ({
+        ...day,
+        spots: day.spots
+          .map((spot, index) => ({
+            ...spot,
+            order: spot.order ?? index + 1,
+            stayMinutes: spot.stayMinutes ?? 60,
+            transportMode: spot.transportMode ?? "walk",
+          }))
+          .sort((current, next) => (current.order ?? 0) - (next.order ?? 0)),
+      })),
+    };
   }
 
   return {
@@ -67,6 +80,9 @@ export function normalizeTravelPlan(travelPlan: ApiTravelPlan | Itinerary): Itin
             memo: itineraryItem?.memo,
             lat: spot.lat,
             lng: spot.lng,
+            order: index + 1,
+            stayMinutes: 60,
+            transportMode: "walk",
           };
         }),
       },

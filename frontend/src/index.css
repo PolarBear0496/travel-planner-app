@@ -21,3 +21,31 @@ input,
 textarea {
   font: inherit;
 }
+
+.trip-map-pin {
+  display: flex;
+  width: 38px;
+  height: 38px;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #ffffff;
+  border-radius: 9999px 9999px 9999px 0;
+  background: #2563eb;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 12px 24px rgb(15 23 42 / 24%);
+  transform: rotate(-45deg);
+}
+
+.trip-map-pin > span {
+  display: block;
+  transform: rotate(45deg);
+}
+
+.trip-map-pin-selected {
+  background: #0f172a;
+  box-shadow:
+    0 0 0 8px rgb(37 99 235 / 18%),
+    0 14px 28px rgb(15 23 42 / 28%);
+}
