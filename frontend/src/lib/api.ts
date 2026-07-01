@@ -3,6 +3,26 @@ import type { ApiTravelPlan, Itinerary, TravelPlanResult } from "../types/itiner
 const API_URL = "/api/generate-trip";
 const PUBLIC_PLANS_URL = "/api/public/plans";
 
+type ApiErrorResponse = {
+  error?: string;
+  message?: string;
+  upgradeUrl?: string;
+};
+
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  upgradeUrl?: string;
+
+  constructor(message: string, status: number, code?: string, upgradeUrl?: string) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.code = code;
+    this.upgradeUrl = upgradeUrl;
+  }
+}
+
 export async function createTravelPlan(query: string): Promise<TravelPlanResult> {
   const response = await fetch(API_URL, {
     method: "POST",
@@ -13,7 +33,7 @@ export async function createTravelPlan(query: string): Promise<TravelPlanResult>
   });
 
   if (!response.ok) {
-    throw new Error(`旅行プランの作成に失敗しました (${response.status})`);
+    throw await buildApiRequestError(response, "旅行プランの作成に失敗しました");
   }
 
   const travelPlan = (await response.json()) as ApiTravelPlan | Itinerary;
@@ -29,7 +49,7 @@ export async function getTravelPlan(planId: string): Promise<TravelPlanResult> {
   const response = await fetch(`${PUBLIC_PLANS_URL}/${encodeURIComponent(planId)}`);
 
   if (!response.ok) {
-    throw new Error(`旅行プランの取得に失敗しました (${response.status})`);
+    throw await buildApiRequestError(response, "旅行プランの取得に失敗しました");
   }
 
   const travelPlan = (await response.json()) as ApiTravelPlan | Itinerary;
@@ -39,6 +59,23 @@ export async function getTravelPlan(planId: string): Promise<TravelPlanResult> {
     planId: "id" in travelPlan ? travelPlan.id : planId,
     shareUrl: "share_url" in travelPlan ? travelPlan.share_url : undefined,
   };
+}
+
+async function buildApiRequestError(response: Response, fallbackMessage: string) {
+  let body: ApiErrorResponse | null = null;
+
+  try {
+    body = (await response.json()) as ApiErrorResponse;
+  } catch {
+    body = null;
+  }
+
+  return new ApiRequestError(
+    body?.message ?? `${fallbackMessage} (${response.status})`,
+    response.status,
+    body?.error,
+    body?.upgradeUrl,
+  );
 }
 
 export function normalizeTravelPlan(travelPlan: ApiTravelPlan | Itinerary): Itinerary {

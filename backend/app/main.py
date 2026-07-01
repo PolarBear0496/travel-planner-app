@@ -8,13 +8,20 @@ from hmac import compare_digest
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Header
+from fastapi import Cookie, FastAPI, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
 from openai import OpenAI
 
-from .schemas import ErrorResponse, GenerateTripRequest, TripPlan, TripPlanResponse
+from .schemas import ErrorResponse, GenerateTripRequest, TripPlan, TripPlanResponse, UsageStatusResponse
+from .usage_limiter import (
+    ANONYMOUS_COOKIE_NAME,
+    InMemoryUsageCounterStore,
+    UsageStatus,
+    UsageLimiter,
+    UsageLimitExceeded,
+)
 
 
 load_dotenv()
@@ -53,6 +60,7 @@ SYSTEM_PROMPT = """あなたは旅行プランナーです。
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 plans: dict[str, dict[str, object]] = {}
 api_usage_counts: dict[tuple[str, str], int] = defaultdict(int)
+usage_limiter = UsageLimiter.from_env(InMemoryUsageCounterStore())
 
 
 app = FastAPI(title="travel-planner-backend")
@@ -74,11 +82,26 @@ async def health_check() -> dict[str, str]:
 @app.post(
     "/api/generate-trip",
     response_model=TripPlanResponse,
-    responses={500: {"model": ErrorResponse}},
+    responses={429: {"model": ErrorResponse}, 500: {"model": ErrorResponse}},
 )
-async def generate_trip(request: GenerateTripRequest) -> TripPlanResponse | JSONResponse:
+async def generate_trip(
+    request: GenerateTripRequest,
+    http_request: Request,
+    response: Response,
+    anonymous_id: str | None = Cookie(default=None, alias=ANONYMOUS_COOKIE_NAME),
+) -> TripPlanResponse | JSONResponse:
+    active_anonymous_id = anonymous_id or uuid4().hex
+    client_ip = get_client_ip(http_request)
+    set_anonymous_cookie(response, active_anonymous_id)
+
+    try:
+        usage_limiter.ensure_anonymous_allowed(active_anonymous_id, client_ip)
+    except UsageLimitExceeded:
+        return usage_limit_error()
+
     try:
         plan = generate_trip_plan(request.prompt)
+        usage_limiter.record_anonymous_generation(active_anonymous_id, client_ip)
         return save_plan(plan=plan, prompt=request.prompt, owner_type="web")
     except Exception as exc:
         logger.exception("Failed to generate trip: %s", exc)
@@ -89,6 +112,19 @@ async def generate_trip(request: GenerateTripRequest) -> TripPlanResponse | JSON
                 message="旅行プランの生成に失敗しました",
             ).model_dump(),
         )
+
+
+@app.get("/api/me/usage", response_model=UsageStatusResponse)
+async def get_usage_status(
+    response: Response,
+    anonymous_id: str | None = Cookie(default=None, alias=ANONYMOUS_COOKIE_NAME),
+) -> UsageStatusResponse:
+    active_anonymous_id = anonymous_id or uuid4().hex
+    set_anonymous_cookie(response, active_anonymous_id)
+
+    return build_usage_status_response(
+        usage_limiter.get_anonymous_status(active_anonymous_id),
+    )
 
 
 @app.post(
@@ -217,6 +253,46 @@ def is_api_client_limited(api_client_hash: str) -> bool:
 def record_api_usage(api_client_hash: str) -> None:
     today = datetime.now(UTC).date().isoformat()
     api_usage_counts[(api_client_hash, today)] += 1
+
+
+def get_client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+
+    if forwarded_for:
+        return forwarded_for.split(",", maxsplit=1)[0].strip()
+
+    return request.client.host if request.client else "unknown"
+
+
+def set_anonymous_cookie(response: Response, anonymous_id: str) -> None:
+    response.set_cookie(
+        key=ANONYMOUS_COOKIE_NAME,
+        value=anonymous_id,
+        max_age=60 * 60 * 24 * 365,
+        httponly=True,
+        samesite="lax",
+    )
+
+
+def usage_limit_error() -> JSONResponse:
+    return JSONResponse(
+        status_code=429,
+        content=ErrorResponse(
+            error="usage_limit_exceeded",
+            message="本日の無料生成回数を使い切りました",
+            upgradeUrl="/pricing",
+        ).model_dump(),
+    )
+
+
+def build_usage_status_response(status: UsageStatus) -> UsageStatusResponse:
+    return UsageStatusResponse(
+        plan=status.plan,
+        limit=status.limit,
+        used=status.used,
+        remaining=status.remaining,
+        resetAt=status.reset_at.isoformat(),
+    )
 
 
 def build_plan_response(plan_id: str, plan: object) -> TripPlanResponse:

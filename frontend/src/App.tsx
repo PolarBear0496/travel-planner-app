@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { sampleItinerary } from "./data/sampleItinerary";
 import { useUsageStatus } from "./hooks/useUsageStatus";
-import { createTravelPlan, getTravelPlan } from "./lib/api";
+import { ApiRequestError, createTravelPlan, getTravelPlan } from "./lib/api";
 import { ItineraryPanel } from "./components/ItineraryPanel";
 import { SearchBar } from "./components/SearchBar";
 import type { Itinerary } from "./types/itinerary";
@@ -43,6 +43,7 @@ function App() {
       return;
     }
 
+    const sharedPlanId = planId;
     let isMounted = true;
 
     async function loadSharedPlan() {
@@ -50,7 +51,7 @@ function App() {
       setErrorMessage(null);
 
       try {
-        const result = await getTravelPlan(planId);
+        const result = await getTravelPlan(sharedPlanId);
 
         if (!isMounted) {
           return;
@@ -108,6 +109,11 @@ function App() {
       setShowRouteMap(true);
       recordGeneration();
     } catch (error) {
+      if (error instanceof ApiRequestError && error.code === "usage_limit_exceeded") {
+        setErrorMessage(`${error.message}。ログインまたは有料プランをご利用ください。`);
+        return;
+      }
+
       setErrorMessage(
         error instanceof Error
           ? `${error.message}。サンプルプランを表示しています。`

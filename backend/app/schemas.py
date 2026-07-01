@@ -33,6 +33,15 @@ class TripPlanResponse(TripPlan):
     share_url: str
 
 
+class UsageStatusResponse(BaseModel):
+    plan: str
+    limit: int
+    used: int
+    remaining: int
+    resetAt: str
+
+
 class ErrorResponse(BaseModel):
     error: str
     message: str
+    upgradeUrl: str | None = None
