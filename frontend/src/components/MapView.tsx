@@ -65,7 +65,7 @@ export function MapView({ itinerary, selectedSpotId, onSelectSpot }: MapViewProp
   const selectedSpot = positionedSpots.find((spot) => spot.id === selectedSpotId);
 
   return (
-    <section className="relative min-h-[620px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.10)]">
+    <section className="relative min-h-[360px] overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.10)] sm:min-h-[520px]">
       <div className="absolute inset-0 bg-[#f3efe7]" />
       <div className="absolute inset-0 opacity-70 [background-image:linear-gradient(90deg,rgba(255,255,255,0.86)_2px,transparent_2px),linear-gradient(rgba(255,255,255,0.86)_2px,transparent_2px)] [background-size:58px_58px]" />
       <div className="absolute left-[-8%] top-[18%] h-28 w-[120%] rotate-[24deg] bg-sky-200/60" />
@@ -74,7 +74,7 @@ export function MapView({ itinerary, selectedSpotId, onSelectSpot }: MapViewProp
       <div className="absolute bottom-[16%] right-[8%] h-36 w-44 rounded-full bg-green-200/55 blur-sm" />
       <div className="absolute right-[16%] top-[8%] h-20 w-24 rounded-full bg-green-200/55 blur-sm" />
 
-      <div className="relative flex h-full min-h-[620px] flex-col p-4">
+      <div className="relative flex h-full min-h-[360px] flex-col p-4 sm:min-h-[520px]">
         <div className="mb-3 flex items-start justify-between gap-4">
           <span className="rounded-xl bg-white px-4 py-3 text-sm font-bold text-slate-800 shadow-md">
             ✦ おすすめスポット
