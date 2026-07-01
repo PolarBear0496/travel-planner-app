@@ -41,10 +41,18 @@ export type ApiItineraryItem = {
 };
 
 export type ApiTravelPlan = {
+  id?: string;
+  share_url?: string;
   title: string;
   destination?: string;
   summary?: string;
   spots: ApiSpot[];
   itinerary: ApiItineraryItem[];
   notes?: string[];
+};
+
+export type TravelPlanResult = {
+  itinerary: Itinerary;
+  planId?: string;
+  shareUrl?: string;
 };

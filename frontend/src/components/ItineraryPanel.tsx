@@ -5,13 +5,23 @@ type ItineraryPanelProps = {
   itinerary: Itinerary;
   selectedSpotId: string | null;
   onSelectSpot: (spotId: string) => void;
+  shareUrl?: string | null;
 };
 
 export function ItineraryPanel({
   itinerary,
   selectedSpotId,
   onSelectSpot,
+  shareUrl,
 }: ItineraryPanelProps) {
+  function handleShare() {
+    if (!shareUrl) {
+      return;
+    }
+
+    void navigator.clipboard?.writeText(shareUrl);
+  }
+
   return (
     <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_18px_50px_rgba(15,23,42,0.10)] lg:p-5">
       <div className="mb-5 flex flex-col gap-4">
@@ -21,12 +31,22 @@ export function ItineraryPanel({
             日程のしおり
           </p>
           <div className="flex gap-2">
-            <button className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
+            <button
+              type="button"
+              onClick={handleShare}
+              disabled={!shareUrl}
+              className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
               共有
             </button>
-            <button className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700">
+            <a
+              href={shareUrl ?? "#"}
+              className={`rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 ${
+                shareUrl ? "" : "pointer-events-none opacity-50"
+              }`}
+            >
               保存
-            </button>
+            </a>
           </div>
         </div>
         <h2 className="text-2xl font-extrabold tracking-normal text-slate-950">{itinerary.title}</h2>

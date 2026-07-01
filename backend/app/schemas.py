@@ -28,6 +28,11 @@ class TripPlan(BaseModel):
     notes: list[str]
 
 
+class TripPlanResponse(TripPlan):
+    id: str
+    share_url: str
+
+
 class ErrorResponse(BaseModel):
     error: str
     message: str

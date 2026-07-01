@@ -1,8 +1,9 @@
-import type { ApiTravelPlan, Itinerary } from "../types/itinerary";
+import type { ApiTravelPlan, Itinerary, TravelPlanResult } from "../types/itinerary";
 
 const API_URL = "/api/generate-trip";
+const PUBLIC_PLANS_URL = "/api/public/plans";
 
-export async function createTravelPlan(query: string): Promise<Itinerary> {
+export async function createTravelPlan(query: string): Promise<TravelPlanResult> {
   const response = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -17,7 +18,27 @@ export async function createTravelPlan(query: string): Promise<Itinerary> {
 
   const travelPlan = (await response.json()) as ApiTravelPlan | Itinerary;
 
-  return normalizeTravelPlan(travelPlan);
+  return {
+    itinerary: normalizeTravelPlan(travelPlan),
+    planId: "id" in travelPlan ? travelPlan.id : undefined,
+    shareUrl: "share_url" in travelPlan ? travelPlan.share_url : undefined,
+  };
+}
+
+export async function getTravelPlan(planId: string): Promise<TravelPlanResult> {
+  const response = await fetch(`${PUBLIC_PLANS_URL}/${encodeURIComponent(planId)}`);
+
+  if (!response.ok) {
+    throw new Error(`旅行プランの取得に失敗しました (${response.status})`);
+  }
+
+  const travelPlan = (await response.json()) as ApiTravelPlan | Itinerary;
+
+  return {
+    itinerary: normalizeTravelPlan(travelPlan),
+    planId: "id" in travelPlan ? travelPlan.id : planId,
+    shareUrl: "share_url" in travelPlan ? travelPlan.share_url : undefined,
+  };
 }
 
 export function normalizeTravelPlan(travelPlan: ApiTravelPlan | Itinerary): Itinerary {
