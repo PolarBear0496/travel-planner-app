@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 const FREE_USAGE_LIMIT = 3;
 const USAGE_STORAGE_KEY = "travel-planner:anonymous-usage-count";
@@ -8,6 +8,15 @@ type UsageStatus = {
   limit: number;
   isLimited: boolean;
   source: "local" | "api";
+  resetAt?: string;
+};
+
+type ApiUsageStatus = {
+  plan: string;
+  limit: number;
+  used: number;
+  remaining: number;
+  resetAt: string;
 };
 
 function getStoredUsageCount() {
@@ -42,7 +51,19 @@ export function useUsageStatus() {
   );
 
   const recordGeneration = useCallback(() => {
-    setApiUsage(null);
+    setApiUsage((current) => {
+      if (!current) {
+        return null;
+      }
+
+      const remaining = Math.max(current.remaining - 1, 0);
+
+      return {
+        ...current,
+        remaining,
+        isLimited: remaining <= 0,
+      };
+    });
     setUsedCount((current) => {
       const nextCount = Math.min(current + 1, FREE_USAGE_LIMIT);
 
@@ -55,13 +76,15 @@ export function useUsageStatus() {
   }, []);
 
   const refreshUsage = useCallback(async () => {
-    const response = await fetch("/api/me/usage");
+    const response = await fetch("/api/me/usage", {
+      credentials: "include",
+    });
 
     if (!response.ok) {
       throw new Error(`利用状況の取得に失敗しました (${response.status})`);
     }
 
-    const data = (await response.json()) as Partial<UsageStatus>;
+    const data = (await response.json()) as Partial<ApiUsageStatus>;
 
     if (typeof data.remaining === "number" && typeof data.limit === "number") {
       setApiUsage({
@@ -69,9 +92,16 @@ export function useUsageStatus() {
         limit: data.limit,
         isLimited: data.remaining <= 0,
         source: "api",
+        resetAt: data.resetAt,
       });
     }
   }, []);
+
+  useEffect(() => {
+    void refreshUsage().catch(() => {
+      setApiUsage(null);
+    });
+  }, [refreshUsage]);
 
   return {
     usageStatus,
