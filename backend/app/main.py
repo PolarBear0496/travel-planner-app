@@ -1,11 +1,14 @@
 import json
 import logging
 import os
+from collections import defaultdict
 from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from hmac import compare_digest
 from uuid import uuid4
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from mangum import Mangum
@@ -23,6 +26,12 @@ logger = logging.getLogger(__name__)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1-mini")
 PLAN_SHARE_BASE_URL = os.getenv("PLAN_SHARE_BASE_URL", "/plan")
+PUBLIC_API_KEY_HASHES = {
+    item.strip()
+    for item in os.getenv("PUBLIC_API_KEY_HASHES", "").split(",")
+    if item.strip()
+}
+PUBLIC_API_DAILY_LIMIT = int(os.getenv("PUBLIC_API_DAILY_LIMIT", "20"))
 
 
 SYSTEM_PROMPT = """あなたは旅行プランナーです。
@@ -43,6 +52,7 @@ SYSTEM_PROMPT = """あなたは旅行プランナーです。
 
 client = OpenAI(api_key=OPENAI_API_KEY) if OPENAI_API_KEY else None
 plans: dict[str, dict[str, object]] = {}
+api_usage_counts: dict[tuple[str, str], int] = defaultdict(int)
 
 
 app = FastAPI(title="travel-planner-backend")
@@ -72,6 +82,54 @@ async def generate_trip(request: GenerateTripRequest) -> TripPlanResponse | JSON
         return save_plan(plan=plan, prompt=request.prompt, owner_type="web")
     except Exception as exc:
         logger.exception("Failed to generate trip: %s", exc)
+        return JSONResponse(
+            status_code=500,
+            content=ErrorResponse(
+                error="failed_to_generate_trip",
+                message="旅行プランの生成に失敗しました",
+            ).model_dump(),
+        )
+
+
+@app.post(
+    "/api/public/generate-trip",
+    response_model=TripPlanResponse,
+    responses={
+        401: {"model": ErrorResponse},
+        429: {"model": ErrorResponse},
+        500: {"model": ErrorResponse},
+    },
+)
+async def generate_trip_from_public_api(
+    request: GenerateTripRequest,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+) -> TripPlanResponse | JSONResponse:
+    api_client_hash = authenticate_api_client(x_api_key)
+
+    if api_client_hash is None:
+        return JSONResponse(
+            status_code=401,
+            content=ErrorResponse(
+                error="invalid_api_key",
+                message="APIキーが無効です",
+            ).model_dump(),
+        )
+
+    if is_api_client_limited(api_client_hash):
+        return JSONResponse(
+            status_code=429,
+            content=ErrorResponse(
+                error="api_rate_limited",
+                message="APIの日次利用上限に達しました",
+            ).model_dump(),
+        )
+
+    try:
+        plan = generate_trip_plan(request.prompt)
+        record_api_usage(api_client_hash)
+        return save_plan(plan=plan, prompt=request.prompt, owner_type="api")
+    except Exception as exc:
+        logger.exception("Failed to generate trip from public API: %s", exc)
         return JSONResponse(
             status_code=500,
             content=ErrorResponse(
@@ -133,6 +191,32 @@ def save_plan(plan: TripPlan, prompt: str, owner_type: str) -> TripPlanResponse:
         "expires_at": datetime.now(UTC) + timedelta(days=30),
     }
     return build_plan_response(plan_id, plan)
+
+
+def authenticate_api_client(api_key: str | None) -> str | None:
+    if not api_key or not PUBLIC_API_KEY_HASHES:
+        return None
+
+    api_key_hash = hash_api_key(api_key)
+    for known_hash in PUBLIC_API_KEY_HASHES:
+        if compare_digest(api_key_hash, known_hash):
+            return api_key_hash
+
+    return None
+
+
+def hash_api_key(api_key: str) -> str:
+    return sha256(api_key.encode("utf-8")).hexdigest()
+
+
+def is_api_client_limited(api_client_hash: str) -> bool:
+    today = datetime.now(UTC).date().isoformat()
+    return api_usage_counts[(api_client_hash, today)] >= PUBLIC_API_DAILY_LIMIT
+
+
+def record_api_usage(api_client_hash: str) -> None:
+    today = datetime.now(UTC).date().isoformat()
+    api_usage_counts[(api_client_hash, today)] += 1
 
 
 def build_plan_response(plan_id: str, plan: object) -> TripPlanResponse:
